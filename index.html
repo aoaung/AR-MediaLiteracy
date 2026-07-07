@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Media Literacy AR Hero - 5 ด่านผู้พิทักษ์ไซเบอร์</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts - Mitr -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Mitr:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- MediaPipe Hands SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            font-family: 'Mitr', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            background-color: #0f172a;
+            /* เพิ่มภาพพื้นหลังอวกาศไซเบอร์ลางๆ */
+            background-image: radial-gradient(circle at 50% 50%, #1e293b 0%, #0f172a 100%);
+        }
+        #webcam {
+            transform: scaleX(-1);
+            display: none;
+        }
+        /* แก้อาการ input ใน Canvas container */
+        input:focus {
+            outline: none;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+    </style>
+</head>
+<body class="text-white min-h-screen overflow-hidden flex flex-col items-center justify-center relative">
+
+    <video id="webcam" autoplay playsinline></video>
+
+    <!-- CONTAINER หลักของเกม -->
+    <div class="relative w-full max-w-lg mx-auto aspect-[3/4] bg-slate-950 rounded-2xl overflow-hidden shadow-2xl border-4 border-slate-700 flex flex-col">
+        
+        <!-- CANVAS เกมหลัก (ขนาด 600x800 3:4) -->
+        <canvas id="gameCanvas" width="600" height="800" class="w-full h-full block bg-slate-950"></canvas>
+
+        <!-- 1. หน้าจอเริ่มเกม (START SCREEN - Glassmorphism) -->
+        <div id="startScreen" class="absolute inset-0 flex flex-col items-center justify-center p-8 z-20 transition-all duration-300">
+            <div class="text-center max-w-xl glass-panel p-10 rounded-3xl w-full">
+                <div class="inline-flex p-5 bg-blue-500/20 rounded-full border border-blue-400/30 text-blue-400 text-6xl mb-6 shadow-lg shadow-blue-500/20">
+                    <i class="fa-solid fa-user-shield"></i>
+                </div>
+                <h1 class="text-4xl md:text-5xl font-bold mb-3 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
+                    Media Literacy AR
+                </h1>
+                <p class="text-slate-300 text-base mb-8">
+                    สวมบทบาทผู้พิทักษ์ไซเบอร์! ใช้มือของคุณจับแยกข่าวจริงและข่าวปลอมในโลกโฮโลแกรม AR
+                </p>
+                
+                <!-- ช่องกรอกชื่อเล่น -->
+                <div class="mb-8 max-w-sm mx-auto">
+                    <label for="playerNameInput" class="block text-left text-sm text-slate-400 mb-2 pl-1"><i class="fa-solid fa-tag mr-1"></i> ชื่อผู้เล่นของคุณ</label>
+                    <input type="text" id="playerNameInput" placeholder="ตั้งชื่อฮีโร่ของคุณ..." class="w-full px-5 py-3 rounded-xl bg-black/40 border border-blue-500/40 text-white placeholder-slate-500 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition text-center text-lg">
+                </div>
+
+                <div class="flex justify-center">
+                    <button onclick="enterGame()" class="px-10 py-4 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white font-bold text-lg rounded-xl shadow-[0_0_20px_rgba(6,182,212,0.4)] transform hover:-translate-y-1 transition-all w-full sm:w-auto">
+                        เข้าสู่เกม <i class="fa-solid fa-arrow-right ml-2"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. หน้าจอแนะนำการเล่น (INSTRUCTION SCREEN) -->
+        <!-- หมายเหตุ: ปุ่มเริ่มเกมจะถูกวาดบน Canvas แทน HTML ปุ่ม -->
+        <div id="instructionScreen" class="absolute inset-0 bg-slate-900/80 flex flex-col items-center pt-10 px-6 z-10 hidden pointer-events-none transition-all duration-300">
+            <div class="max-w-2xl w-full glass-panel rounded-2xl p-6 md:p-8 pointer-events-auto">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-cyan-400">
+                        <i class="fa-solid fa-bullseye mr-2"></i>วิธีควบคุมภารกิจ
+                    </h2>
+                    <button onclick="changeState('start')" class="text-slate-400 hover:text-white transition">
+                        <i class="fa-solid fa-xmark text-2xl"></i>
+                    </button>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+                    <div class="bg-black/30 p-4 rounded-xl border border-white/10">
+                        <h3 class="font-bold text-cyan-300 mb-2 flex items-center gap-2 text-sm">
+                            <i class="fa-solid fa-hand-pointer"></i> โหมด AR (กล้อง)
+                        </h3>
+                        <p class="text-slate-300 text-xs leading-relaxed">
+                            เล็งเป้าหมายด้วยปลายนิ้วชี้ <br>
+                            จีบนิ้วโป้งและชี้เข้าหากันเพื่อ <b>"คีบการ์ด"</b><br>
+                            ปล่อยนิ้วเพื่อ <b>"วาง"</b> ลงพอร์ทัล
+                        </p>
+                    </div>
+                    <div class="bg-black/30 p-4 rounded-xl border border-white/10">
+                        <h3 class="font-bold text-emerald-400 mb-2 flex items-center gap-2 text-sm">
+                            <i class="fa-solid fa-computer-mouse"></i> โหมดเมาส์ / ทัช
+                        </h3>
+                        <p class="text-slate-300 text-xs leading-relaxed">
+                            สามารถใช้เมาส์ <b>คลิกค้าง</b> หรือ <b>ทัชสกรีน</b> เพื่อลากการ์ดข้อมูลไปวางได้ทันที หากระบบกล้องขัดข้อง
+                        </p>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-center gap-2 bg-blue-900/30 py-2 px-4 rounded-lg border border-blue-500/20">
+                    <span class="relative flex h-2.5 w-2.5">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-cyan-500"></span>
+                    </span>
+                    <span id="webcamStatus" class="text-xs text-cyan-200">ระบบกล้องทำงาน...</span>
+                </div>
+
+                <!-- เพิ่มปุ่มกดเริ่มเกมตรงนี้แทน AR Button -->
+                <div class="mt-8 flex justify-center">
+                    <button onclick="startGame()" class="px-10 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white font-bold text-lg rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.4)] transform hover:-translate-y-1 transition-all">
+                        เริ่มภารกิจ <i class="fa-solid fa-play ml-2"></i>
+                    </button>
+                </div>
+            </div>
+            
+        </div>
+
+        <!-- 3. หน้าจอจบเกม (GAME OVER SCREEN) -->
+        <div id="gameOverScreen" class="absolute inset-0 bg-slate-900/95 flex flex-col items-center justify-center p-8 z-20 hidden transition-all duration-300">
+            <div class="text-center max-w-md w-full glass-panel rounded-3xl p-8 shadow-2xl relative overflow-hidden">
+                <!-- ประดับแสงพื้นหลัง -->
+                <div class="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-32 bg-cyan-500/20 blur-[50px] rounded-full"></div>
+                
+                <h2 class="text-3xl font-bold mb-4 text-white relative z-10">สรุปผลภารกิจ</h2>
+                
+                <!-- ระดับดาว -->
+                <div id="finalStars" class="flex justify-center gap-2 text-4xl text-amber-400 mb-2 relative z-10 drop-shadow-[0_0_10px_rgba(251,191,36,0.5)]">
+                    <!-- จะถูกเติมด้วย JS -->
+                </div>
+                <p id="evaluationText" class="text-cyan-300 font-bold mb-6 text-lg relative z-10">ระดับ: พลเมืองดิจิทัลรอบรู้</p>
+                
+                <div class="bg-black/40 rounded-2xl p-5 mb-6 space-y-3 border border-white/10 relative z-10">
+                    <div class="flex justify-between text-slate-300 text-sm">
+                        <span>ผู้เล่น:</span>
+                        <span id="finalPlayerName" class="font-bold text-white">ชื่อ</span>
+                    </div>
+                    <div class="flex justify-between text-slate-300 text-sm border-b border-white/5 pb-2">
+                        <span>เวลาสะสมทั้งหมด:</span>
+                        <span id="finalTimeLeft" class="font-bold text-white">0s</span>
+                    </div>
+                    <div class="flex justify-between text-white items-center pt-1">
+                        <span class="font-medium">คะแนนรวมสุทธิ:</span>
+                        <span id="finalScore" class="font-bold text-emerald-400 text-3xl drop-shadow-[0_0_5px_rgba(16,185,129,0.5)]">0</span>
+                    </div>
+                    <div class="flex justify-between items-center bg-amber-500/20 p-2 rounded-lg border border-amber-500/30">
+                        <span class="text-amber-200 text-sm font-medium"><i class="fa-solid fa-coins mr-1"></i> เหรียญที่ได้รับ:</span>
+                        <span id="finalCoins" class="font-bold text-amber-400 text-lg">0</span>
+                    </div>
+                </div>
+
+                <div class="flex gap-3 relative z-10">
+                    <button onclick="changeState('start')" class="flex-1 py-3 bg-slate-800 hover:bg-slate-700 font-bold rounded-xl transition border border-slate-600">
+                        กลับหน้าแรก
+                    </button>
+                    <button onclick="resetGame()" class="flex-1 py-3 bg-cyan-600 hover:bg-cyan-500 font-bold rounded-xl text-white transition-all shadow-[0_0_15px_rgba(6,182,212,0.4)]">
+                        เล่นอีกครั้ง
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ==================== JAVASCRIPT GAME LOGIC ==================== -->
+    <script>
+        // === [0] AUDIO ENGINE ===
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            if (type === 'click') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.05);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.05);
+            } else if (type === 'correct') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); 
+                osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.08); 
+                osc.frequency.setValueAtTime(783.99, audioCtx.currentTime + 0.16); 
+                gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.3);
+            } else if (type === 'wrong') {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(220, audioCtx.currentTime);
+                osc.frequency.linearRampToValueAtTime(130, audioCtx.currentTime + 0.2);
+                gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.2);
+            } else if (type === 'levelup' || type === 'start') {
+                osc.type = 'sine';
+                const notes = [261.63, 329.63, 392.00, 523.25, 659.25, 783.99];
+                notes.forEach((freq, idx) => {
+                    const time = audioCtx.currentTime + (idx * 0.08);
+                    const oscNode = audioCtx.createOscillator();
+                    const gainNode = audioCtx.createGain();
+                    oscNode.type = 'sine';
+                    oscNode.frequency.setValueAtTime(freq, time);
+                    gainNode.gain.setValueAtTime(0.1, time);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
+                    oscNode.connect(gainNode);
+                    gainNode.connect(audioCtx.destination);
+                    oscNode.start(time);
+                    oscNode.stop(time + 0.15);
+                });
+            }
+        }
+
+        // === [1] LEVEL_DATA: โครงสร้างเกม 5 ด่าน ===
+        const LEVEL_DATA = [
+            {
+                level: 1, title: "ข่าวสารในโซเชียลมีเดีย",
+                description: "แยกแยะข่าวจริงหรือข่าวปลอมที่แชร์กันในสื่อสังคมออนไลน์",
+                items: [
+                    { text: "สูตรลับ! ดื่มน้ำต้มตะไคร้ผสมน้ำผึ้งรักษามะเร็งปอดหายขาดใน 3 วัน", type: "fake", hint: "ขาดสถาบันทางการแพทย์รองรับและอวดอ้างสรรพคุณเกินจริง" },
+                    { text: "กระทรวงสาธารณสุขเตือน พบสายพันธุ์ไข้หวัดใหญ่ระบาด แนะปรึกษาแพทย์", type: "real", hint: "มีแหล่งข้อมูลอ้างอิงจากหน่วยงานรัฐที่รับผิดชอบชัดเจน" },
+                    { text: "ด่วน! แผ่นดินไหว 9.5 ริกเตอร์ กรุงเทพฯ ตึกถล่มพินาศขณะนี้", type: "fake", hint: "สร้างความตื่นตระหนกและไม่พบการยืนยันจากสำนักข่าวหลัก" },
+                    { text: "กรมอุตุนิยมวิทยาแจ้งเตือน พายุฝนฟ้าคะนองในพื้นที่ภาคเหนือสัปดาห์นี้", type: "real", hint: "ข่าวสารจากหน่วยงานที่รับผิดชอบโดยตรง มีสถิติอ้างอิงได้" }
+                ]
+            },
+            {
+                level: 2, title: "ภัยคุกคามและกลโกง",
+                description: "วิเคราะห์ข้อความหลอกลวงของมิจฉาชีพกับระบบความปลอดภัย",
+                items: [
+                    { text: "ยินดีด้วย! คุณได้รับเงินคืน 20,000 บาท กดลิงก์เพื่อกรอกเลขบัตรประชาชน", type: "fake", hint: "มุขหลอกลวง (Phishing) ให้กรอกข้อมูลส่วนบุคคลแลกของรางวัล" },
+                    { text: "ธนาคารแจ้งเตือน: พบการล็อกอินผิดปกติ หากไม่ใช่คุณโปรดติดต่อคอลเซ็นเตอร์", type: "real", hint: "การแจ้งเตือนความปลอดภัยมาตรฐานที่ไม่มีการแนบลิงก์ให้กรอกรหัส" },
+                    { text: "กู้เงินด่วนดอกเบี้ย 0% ไม่เช็คแบล็กลิสต์ โอนมัดจำก่อนกู้ แอดไลน์ทันที", type: "fake", hint: "โฆษณาเงินกู้ผิดกฎหมายที่มักหลอกให้โอนค่าธรรมเนียมล่วงหน้า" },
+                    { text: "อัปเดตระบบปฏิบัติการของคุณให้เป็นเวอร์ชันล่าสุดผ่านการตั้งค่าของเครื่อง", type: "real", hint: "คำแนะนำปลอดภัยตามมาตรฐานเพื่ออุดช่องโหว่ทางไซเบอร์" }
+                ]
+            },
+            {
+                level: 3, title: "สื่อบิดเบือนและผลผลิต AI",
+                description: "ตรวจสอบรูปภาพและคลิปเสียงที่ถูกสร้างด้วยปัญญาประดิษฐ์ (Deepfake)",
+                items: [
+                    { text: "ภาพพายุหมุนขนาดยักษ์กลางเมืองกรุงเทพฯ (ตรวจสอบพบเป็นภาพ Generative AI)", type: "fake", hint: "ภาพเร้าอารมณ์ที่สร้างขึ้นจากคอมพิวเตอร์เพื่อดึงดูดความสนใจ" },
+                    { text: "เอกสารแถลงการณ์จากสมาคมภาษาไทย เรื่องปรับปรุงการใช้คำทับศัพท์", type: "real", hint: "มีการระบุตัวตนและที่มาของหน่วยงานราชการที่ตรวจสอบได้" },
+                    { text: "คลิปเสียงนักการเมืองรับสารภาพทุจริต (ผู้เชี่ยวชาญชี้เป็นเสียงสังเคราะห์ AI)", type: "fake", hint: "เทคโนโลยี Deepfake ปลอมเสียงเพื่อบิดเบือนเจตนาและทำลายชื่อเสียง" },
+                    { text: "ผลวิจัยมหาวิทยาลัยพบค่าฝุ่น PM2.5 ในพื้นที่เมืองสูงเกินมาตรฐาน 10%", type: "real", hint: "อ้างอิงหน่วยงานวิชาการและมีสถิติที่สามารถหาข้อมูลอ้างอิงเทียบได้" }
+                ]
+            },
+            {
+                level: 4, title: "จริยธรรมในการแชร์ข้อมูล",
+                description: "พิจารณาความเหมาะสมก่อนกดแชร์หรือส่งต่อข้อมูลลงสู่พื้นที่สาธารณะ",
+                items: [
+                    { text: "ส่งต่อรูปถ่ายบุคคลในร้านอาหารอ้างว่าเป็นคนร้ายเพื่อให้สังคมร่วมประณาม", type: "fake", hint: "ละเมิดสิทธิผู้อื่นและผิดกฎหมายคอมพิวเตอร์หากข้อมูลไม่เป็นจริง" },
+                    { text: "แชร์อินโฟกราฟิกวิธีปฐมพยาบาลเบื้องต้น พร้อมให้เครดิตแหล่งที่มาโรงพยาบาล", type: "real", hint: "ส่งต่อข้อมูลที่เป็นประโยชน์ ให้เกียรติผู้แต่ง และตรวจสอบกลับได้" },
+                    { text: "แชร์ข่าวลือเก่าเรื่องแก๊งลักพาตัวเมื่อ 5 ปีที่แล้ว โดยไม่ตรวจสอบวันที่ลงข่าว", type: "fake", hint: "การแชร์ข่าวเก่าสร้างความตื่นตระหนกโดยใช่เหตุ" },
+                    { text: "โพสต์ร้องเรียนถนนชำรุดในซอยด้วยภาษาสุภาพ โดยเบลอหน้าผู้คนที่ติดในภาพ", type: "real", hint: "สะท้อนปัญหาอย่างสร้างสรรค์และเคารพความเป็นส่วนตัวของผู้อื่น" }
+                ]
+            },
+            {
+                level: 5, title: "ความปลอดภัยของบัญชี",
+                description: "วิเคราะห์พฤติกรรมเพื่อรักษาความปลอดภัยของบัญชีและการเข้าถึงข้อมูล",
+                items: [
+                    { text: "พนักงานขนส่งโทรขอรหัส OTP จาก SMS ของคุณเพื่อยืนยันการรับพัสดุ", type: "fake", hint: "รหัส OTP เป็นความลับสูงสุด ห้ามบอกแก่เจ้าหน้าที่หรือบุคคลอื่นเด็ดขาด" },
+                    { text: "เปิดใช้งานการยืนยันตัวตนสองชั้น (2FA) ในแอปพลิเคชันอีเมลหลัก", type: "real", hint: "เป็นเกราะป้องกันการถูกแฮกบัญชีที่มีประสิทธิภาพสูงสุดในปัจจุบัน" },
+                    { text: "คลิกลิงก์ลดราคา 90% จากแชทคนแปลกหน้า และกรอกบัตรเครดิตลงไป", type: "fake", hint: "หน้าเว็บฟิชชิ่งล่อลวงเพื่อโจรกรรมข้อมูลบัตรเครดิต" },
+                    { text: "ตั้งรหัสผ่านด้วยตัวอักษรพิมพ์ใหญ่ พิมพ์เล็ก ตัวเลข และหลีกเลี่ยงวันเกิด", type: "real", hint: "การสร้างรหัสผ่านที่ซับซ้อนช่วยลดโอกาสถูกเดาสุ่มรหัสได้อย่างมาก" }
+                ]
+            }
+        ];
+
+        // === [2] ตัวแปรสเตทและระบบ ===
+        let playerName = "ฮีโร่นิรนาม";
+        let gameState = 'start'; // start, instruction, playing, gameover
+        let currentLevelIndex = 0;
+        let score = 0;
+        let totalTimeAccumulated = 0;
+        let timeLeft = 30; // 30 วินาทีต่อด่านตามกำหนด
+        let timerInterval = null;
+        let feedbackMessage = null; 
+        let feedbackTimer = 0;
+
+        let gameItems = [];
+        let dropzones = [];
+        let particles = [];
+        let latestLandmarks = null;
+
+        let pointerX = 300; // จุดกึ่งกลางหน้าจอ 600
+        let pointerY = 400; // จุดกึ่งกลางหน้าจอ 800
+        let isPinching = false; 
+        let draggedItem = null; 
+
+        let hasCamera = false;
+        let isHandsModelLoaded = false;
+        let isUsingCamera = false;
+        let activeHandDetected = false;
+        let isMouseDown = false;
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const videoElement = document.getElementById('webcam');
+        const webcamStatus = document.getElementById('webcamStatus');
+
+        // === [3] ระบบลากวางและสัมผัส ===
+        function initMouseAndTouchEvents() {
+            function getCanvasCoords(e) {
+                const rect = canvas.getBoundingClientRect();
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                return {
+                    x: ((clientX - rect.left) / rect.width) * canvas.width,
+                    y: ((clientY - rect.top) / rect.height) * canvas.height
+                };
+            }
+
+            const handleStart = (e) => {
+                if (gameState !== 'playing' && gameState !== 'instruction') return;
+                const coords = getCanvasCoords(e);
+                pointerX = coords.x;
+                pointerY = coords.y;
+                isMouseDown = true;
+                isPinching = true; 
+                if (gameState === 'playing') checkItemPickup();
+            };
+
+            const handleMove = (e) => {
+                if (gameState !== 'playing' && gameState !== 'instruction') return;
+                const coords = getCanvasCoords(e);
+                pointerX = coords.x;
+                pointerY = coords.y;
+            };
+
+            const handleEnd = () => {
+                if (gameState !== 'playing' && gameState !== 'instruction') return;
+                isMouseDown = false;
+                isPinching = false; 
+                if (gameState === 'playing') checkItemDrop();
+            };
+
+            canvas.addEventListener('mousedown', handleStart);
+            canvas.addEventListener('mousemove', handleMove);
+            canvas.addEventListener('mouseup', handleEnd);
+            canvas.addEventListener('mouseleave', handleEnd);
+
+            canvas.addEventListener('touchstart', (e) => { handleStart(e); e.preventDefault(); }, { passive: false });
+            canvas.addEventListener('touchmove', (e) => { handleMove(e); e.preventDefault(); }, { passive: false });
+            canvas.addEventListener('touchend', (e) => { handleEnd(e); e.preventDefault(); }, { passive: false });
+        }
+
+        // === [4] ระบบ AR MediaPipe ===
+        const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+        hands.onResults(onHandResults);
+
+        function startCamera() {
+            webcamStatus.innerText = "กำลังจูนเนอร์ระบบ AR...";
+            navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
+                .then((stream) => {
+                    videoElement.srcObject = stream;
+                    hasCamera = true;
+                    isUsingCamera = true;
+                    
+                    const camera = new Camera(videoElement, {
+                        onFrame: async () => { if (isUsingCamera) await hands.send({ image: videoElement }); },
+                        width: 640, height: 480
+                    });
+                    
+                    camera.start()
+                        .then(() => { webcamStatus.innerHTML = "เชื่อมต่อระบบ AR สำเร็จแล้ว"; })
+                        .catch(() => { fallbackToMouseOnly("ขัดข้อง"); });
+                })
+                .catch(() => { fallbackToMouseOnly("ปฏิเสธสิทธิ์กล้อง"); });
+        }
+
+        function fallbackToMouseOnly(reason) {
+            hasCamera = false;
+            isUsingCamera = false;
+            webcamStatus.innerHTML = `สลับใช้ทัช/เมาส์ (${reason})`;
+        }
+
+        function onHandResults(results) {
+            isHandsModelLoaded = true;
+            activeHandDetected = false;
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                activeHandDetected = true;
+                latestLandmarks = results.multiHandLandmarks[0]; 
+
+                pointerX = (1 - latestLandmarks[8].x) * canvas.width;
+                pointerY = latestLandmarks[8].y * canvas.height;
+
+                const dx = (latestLandmarks[4].x - latestLandmarks[8].x) * canvas.width;
+                const dy = (latestLandmarks[4].y - latestLandmarks[8].y) * canvas.height;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                if (dist < 45) { // ปรับระยะการบีบนิ้วให้เหมาะกับความละเอียด 800x600
+                    if (!isPinching) {
+                        isPinching = true;
+                        if (gameState === 'playing') checkItemPickup();
+                    }
+                } else {
+                    if (isPinching) {
+                        isPinching = false;
+                        if (gameState === 'playing') checkItemDrop();
+                    }
+                }
+            } else {
+                activeHandDetected = false;
+                latestLandmarks = null; 
+                if (!isMouseDown) isPinching = false;
+            }
+        }
+
+        // === [5] ลอจิกเกมหลัก ===
+        function enterGame() {
+            const nameVal = document.getElementById('playerNameInput').value.trim();
+            playerName = nameVal !== "" ? nameVal : "ฮีโร่นิรนาม";
+            playSound('click'); // ปลุกระบบเสียง
+            changeState('instruction');
+        }
+
+        function checkItemPickup() {
+            if (draggedItem) return; 
+            for (let i = gameItems.length - 1; i >= 0; i--) {
+                const item = gameItems[i];
+                if (item.solved) continue; 
+                if (Math.abs(pointerX - item.x) <= item.width/2 && Math.abs(pointerY - item.y) <= item.height/2) {
+                    draggedItem = item;
+                    item.isDragging = true;
+                    playSound('click');
+                    createSplashParticles(pointerX, pointerY, '#38bdf8', 12);
+                    break;
+                }
+            }
+        }
+
+        function checkItemDrop() {
+            if (!draggedItem) return;
+            let matchedZone = null;
+            for (const zone of dropzones) {
+                if (Math.hypot(pointerX - zone.x, pointerY - zone.y) < zone.radius + 30) { // ปรับระยะวาง
+                    matchedZone = zone;
+                    break;
+                }
+            }
+
+            if (matchedZone) {
+                draggedItem.isDragging = false;
+                draggedItem.solved = true;
+                draggedItem.x = matchedZone.x; 
+                draggedItem.y = matchedZone.y;
+                
+                if (draggedItem.type === matchedZone.type) {
+                    score += 100;
+                    playSound('correct');
+                    createSplashParticles(matchedZone.x, matchedZone.y, '#10b981', 30); 
+                    triggerFeedback("ถูกต้อง! +100", "#10b981");
+                } else {
+                    score = Math.max(0, score - 50); 
+                    playSound('wrong');
+                    createSplashParticles(pointerX, pointerY, '#ef4444', 25); 
+                    triggerFeedback(`ผิด: ${draggedItem.hint}`, "#ef4444");
+                }
+                checkLevelCompletion();
+            } else {
+                draggedItem.isDragging = false;
+                draggedItem.x = draggedItem.startX;
+                draggedItem.y = draggedItem.startY;
+            }
+            draggedItem = null;
+        }
+
+        function triggerFeedback(msg, color) {
+            feedbackMessage = { text: msg, color: color };
+            feedbackTimer = 100; 
+        }
+
+        function checkLevelCompletion() {
+            if (gameItems.filter(item => !item.solved).length === 0) {
+                const timeBonus = timeLeft * 2; 
+                score += timeBonus;
+                totalTimeAccumulated += (30 - timeLeft); // เก็บสถิติเวลาที่ใช้ไปจาก 30 วินาที
+                playSound('levelup');
+                triggerFeedback(`ผ่านด่าน! โบนัสเวลา +${timeBonus}`, "#38bdf8");
+
+                setTimeout(() => {
+                    if (currentLevelIndex < LEVEL_DATA.length - 1) {
+                        currentLevelIndex++;
+                        loadLevel(currentLevelIndex);
+                    } else {
+                        endGame();
+                    }
+                }, 1500);
+            }
+        }
+
+        function changeState(newState) {
+            gameState = newState;
+            document.getElementById('startScreen').classList.add('hidden');
+            document.getElementById('instructionScreen').classList.add('hidden');
+            document.getElementById('gameOverScreen').classList.add('hidden');
+
+            if (gameState === 'start') {
+                document.getElementById('startScreen').classList.remove('hidden');
+                document.getElementById('playerNameInput').value = ""; // เคลียร์ชื่อ
+            } else if (gameState === 'instruction') {
+                document.getElementById('instructionScreen').classList.remove('hidden');
+                if (!isUsingCamera) startCamera();
+            } else if (gameState === 'gameover') {
+                document.getElementById('gameOverScreen').classList.remove('hidden');
+            }
+        }
+
+        function startGame() {
+            playSound('start');
+            changeState('playing');
+            score = 0;
+            totalTimeAccumulated = 0;
+            currentLevelIndex = 0;
+            loadLevel(currentLevelIndex);
+
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                if (gameState === 'playing') {
+                    timeLeft--;
+                    if (timeLeft <= 0) {
+                        // หมดเวลาของด่านนี้
+                        triggerFeedback("หมดเวลาประจำด่าน!", "#ef4444");
+                        totalTimeAccumulated += 30; // ใช้เวลาเต็ม 30 วินาที
+                        setTimeout(() => {
+                            if (currentLevelIndex < LEVEL_DATA.length - 1) {
+                                currentLevelIndex++;
+                                loadLevel(currentLevelIndex);
+                            } else {
+                                endGame();
+                            }
+                        }, 1000);
+                    }
+                }
+            }, 1000);
+        }
+
+        function resetGame() { startGame(); }
+
+        function endGame() {
+            if (timerInterval) clearInterval(timerInterval);
+            
+            // คำนวณดาวและเหรียญ
+            let stars = 0;
+            if (score >= 2500) stars = 3;
+            else if (score >= 1200) stars = 2;
+            else stars = 1;
+
+            let coins = Math.floor(score / 10);
+            
+            // Render ดาว
+            let starHtml = "";
+            for(let i=0; i<3; i++) {
+                if(i < stars) starHtml += `<i class="fa-solid fa-star drop-shadow-md transform scale-110"></i>`;
+                else starHtml += `<i class="fa-regular fa-star text-slate-600"></i>`;
+            }
+            document.getElementById('finalStars').innerHTML = starHtml;
+            document.getElementById('finalCoins').innerText = coins;
+
+            // กำหนดข้อมูลอื่นๆ
+            document.getElementById('finalPlayerName').innerText = playerName;
+            document.getElementById('finalScore').innerText = score;
+            document.getElementById('finalTimeLeft').innerText = totalTimeAccumulated + " วินาที";
+            
+            const evalText = document.getElementById('evaluationText');
+            if (stars === 3) evalText.innerText = "ระดับ: อัศวินปกป้องภัยความจริงไซเบอร์ 👑";
+            else if (stars === 2) evalText.innerText = "ระดับ: พลเมืองดิจิทัลรู้เท่าทันสื่อ 🌟";
+            else evalText.innerText = "ระดับ: ผู้เริ่มต้นเรียนรู้และคัดแยกข้อมูล 🛡️";
+
+            changeState('gameover');
+        }
+
+        function loadLevel(levelIdx) {
+            const data = LEVEL_DATA[levelIdx];
+            timeLeft = 30; // รีเซ็ตเวลา 30 วิ ต่อด่าน
+            gameItems = [];
+            particles = [];
+            feedbackMessage = null;
+
+            dropzones = [
+                { x: 150, y: 700, radius: 70, type: "real", label: "ข้อมูลจริง / น่าเชื่อถือ", color: "#10b981", bgColor: "rgba(16, 185, 129, 0.15)" },
+                { x: 450, y: 700, radius: 70, type: "fake", label: "ข่าวลวง / อันตราย", color: "#ef4444", bgColor: "rgba(239, 68, 68, 0.15)" }
+            ];
+
+            // ปรับขนาดการ์ดและระยะห่างสำหรับหน้าจอ 3:4 (600x800)
+            const itemW = 230, itemH = 135;
+            const positions = [ {x: 155, y: 230}, {x: 445, y: 230}, {x: 155, y: 390}, {x: 445, y: 390} ];
+
+            data.items.forEach((item, index) => {
+                const pos = positions[index] || { x: 300, y: 300 };
+                gameItems.push({
+                    id: index, text: item.text, type: item.type, hint: item.hint,
+                    startX: pos.x, startY: pos.y, x: pos.x, y: pos.y, width: itemW, height: itemH,
+                    isDragging: false, solved: false
+                });
+            });
+        }
+
+        // === [6] Particles & Render Systems ===
+        function createSplashParticles(x, y, color, count) {
+            for (let i = 0; i < count; i++) {
+                particles.push({
+                    x: x, y: y,
+                    vx: (Math.random() - 0.5) * 6, vy: (Math.random() - 0.5) * 6 - 2, 
+                    size: Math.random() * 4 + 2, color: color, alpha: 1, decay: Math.random() * 0.02 + 0.02
+                });
+            }
+        }
+
+        function updateAndDrawParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx; p.y += p.vy; p.alpha -= p.decay;
+                if (p.alpha <= 0) { particles.splice(i, 1); continue; }
+                ctx.save();
+                ctx.globalAlpha = p.alpha; ctx.fillStyle = p.color;
+                ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        // === DRAW GAME LOOP ===
+        function drawGame() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // พื้นหลัง (เว็บแคม หรือ สีทึบ)
+            if (isUsingCamera && hasCamera) {
+                ctx.save(); ctx.translate(canvas.width, 0); ctx.scale(-1, 1);
+                ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height); ctx.restore();
+                ctx.fillStyle = "rgba(15, 23, 42, 0.7)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            } else {
+                ctx.fillStyle = "#0f172a"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.strokeStyle = "rgba(71, 85, 105, 0.2)"; ctx.lineWidth = 1;
+                for (let x = 0; x < canvas.width; x += 50) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
+                for (let y = 0; y < canvas.height; y += 50) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
+            }
+
+            if (gameState === 'instruction') {
+                drawHandSkeleton();
+                drawPointer();
+            } else if (gameState === 'playing') {
+                drawHUD();
+                drawDropzones();
+                drawGameItems();
+                updateAndDrawParticles();
+                drawFeedbackMessage();
+                drawHandSkeleton();
+                drawPointer();
+            }
+
+            requestAnimationFrame(drawGame);
+        }
+
+        function drawHandSkeleton() {
+            if (!activeHandDetected || !latestLandmarks) return;
+            ctx.save();
+            const getCanvasCoords = (lm) => ({ x: (1 - lm.x) * canvas.width, y: lm.y * canvas.height });
+
+            const connections = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12], [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [17, 18], [18, 19], [19, 20], [0, 17]];
+
+            ctx.strokeStyle = isPinching ? "#10b981" : "#0ea5e9";
+            ctx.lineWidth = 3; ctx.lineCap = "round"; ctx.shadowBlur = 5; ctx.shadowColor = ctx.strokeStyle;
+
+            connections.forEach(([p1, p2]) => {
+                const pt1 = getCanvasCoords(latestLandmarks[p1]);
+                const pt2 = getCanvasCoords(latestLandmarks[p2]);
+                ctx.beginPath(); ctx.moveTo(pt1.x, pt1.y); ctx.lineTo(pt2.x, pt2.y); ctx.stroke();
+            });
+
+            latestLandmarks.forEach((lm, index) => {
+                const pt = getCanvasCoords(lm);
+                const isActionFinger = (index === 8 || index === 4);
+                ctx.beginPath(); ctx.arc(pt.x, pt.y, isActionFinger ? 6 : 3, 0, Math.PI * 2);
+                ctx.fillStyle = isActionFinger ? (isPinching ? "#10b981" : "#38bdf8") : "#ffffff";
+                ctx.fill();
+            });
+            ctx.restore();
+        }
+
+        function drawHUD() {
+            const data = LEVEL_DATA[currentLevelIndex];
+            ctx.save();
+            // แถบ HUD
+            ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+            ctx.strokeStyle = "rgba(56, 189, 248, 0.3)";
+            ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.roundRect(15, 15, canvas.width - 30, 110, 12); ctx.fill(); ctx.stroke();
+
+            // แถวที่ 1: ผู้เล่น & คะแนน
+            ctx.fillStyle = "#e2e8f0"; ctx.font = "16px Mitr"; ctx.textAlign = "left";
+            ctx.fillText(`👤 ฮีโร่: ${playerName}`, 30, 42);
+            ctx.textAlign = "right";
+            ctx.fillStyle = "#10b981"; ctx.font = "bold 18px Mitr";
+            ctx.fillText(`🏆 คะแนน: ${score}`, canvas.width - 30, 42);
+
+            // แถวที่ 2: ด่าน & เวลา
+            ctx.textAlign = "left";
+            ctx.fillStyle = "#38bdf8"; ctx.font = "bold 18px Mitr";
+            ctx.fillText(`ด่านที่ ${currentLevelIndex + 1}/5`, 30, 72);
+            ctx.textAlign = "right";
+            ctx.fillStyle = timeLeft <= 10 ? "#ef4444" : "#e2e8f0"; 
+            ctx.fillText(`⏱️ เวลา: ${timeLeft}s`, canvas.width - 30, 72);
+
+            // เส้นแบ่ง
+            ctx.beginPath(); ctx.moveTo(30, 88); ctx.lineTo(canvas.width - 30, 88);
+            ctx.strokeStyle = "rgba(255,255,255,0.1)"; ctx.stroke();
+
+            // โจทย์ตรงกลางด้านล่าง
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#94a3b8"; ctx.font = "15px Mitr";
+            ctx.fillText(`ภารกิจ: ${data.description}`, canvas.width / 2, 108);
+            ctx.restore();
+        }
+
+        function drawDropzones() {
+            dropzones.forEach(zone => {
+                const pulse = zone.radius + Math.sin(Date.now() / 200) * 4;
+                ctx.save(); ctx.fillStyle = zone.bgColor; ctx.shadowBlur = 15; ctx.shadowColor = zone.color;
+                ctx.beginPath(); ctx.arc(zone.x, zone.y, pulse, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = zone.color; ctx.lineWidth = 3; ctx.setLineDash([8, 6]); ctx.lineDashOffset = -Date.now() / 30;
+                ctx.beginPath(); ctx.arc(zone.x, zone.y, pulse, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+                
+                ctx.save(); ctx.fillStyle = zone.color; ctx.font = "36px 'Font Awesome 6 Free'"; ctx.fontWeight = "900"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+                ctx.fillText(zone.type === "real" ? "\uf058" : "\uf071", zone.x, zone.y - 15); ctx.restore();
+                
+                ctx.fillStyle = "#fff"; ctx.font = "bold 15px Mitr"; ctx.textAlign = "center";
+                ctx.fillText(zone.label, zone.x, zone.y + 35);
+            });
+        }
+
+        function drawGameItems() {
+            gameItems.forEach(item => {
+                if (item.solved) return;
+                const isDrag = item.isDragging;
+                
+                // 1. วาดตัวการ์ดและเงา
+                ctx.save(); 
+                ctx.shadowBlur = isDrag ? 20 : 8; 
+                ctx.shadowColor = isDrag ? "#38bdf8" : "rgba(0,0,0,0.5)"; 
+                ctx.shadowOffsetY = isDrag ? 10 : 4;
+                const x = item.x - item.width/2, y = item.y - item.height/2, r = 12;
+                ctx.beginPath(); 
+                ctx.roundRect(x, y, item.width, item.height, r);
+                const grad = ctx.createLinearGradient(x, y, x, y + item.height);
+                grad.addColorStop(0, isDrag ? '#1e293b' : '#0f172a'); 
+                grad.addColorStop(1, isDrag ? '#334155' : '#1e293b');
+                ctx.fillStyle = grad; 
+                ctx.fill();
+                ctx.strokeStyle = isDrag ? "#38bdf8" : "rgba(255,255,255,0.15)"; 
+                ctx.lineWidth = isDrag ? 2 : 1; 
+                ctx.stroke();
+                ctx.restore();
+                
+                // 2. ป้ายข้อความหัวข้อย่อย "ข้อมูลพิสูจน์"
+                ctx.fillStyle = isDrag ? "rgba(56, 189, 248, 0.15)" : "rgba(255, 255, 255, 0.08)";
+                ctx.beginPath();
+                ctx.roundRect(x + 16, y + 16, 105, 24, 6);
+                ctx.fill();
+
+                ctx.fillStyle = isDrag ? "#38bdf8" : "#cbd5e1"; 
+                ctx.font = "bold 12px Mitr"; 
+                ctx.fillText("🔍 ข้อมูลพิสูจน์", x + 24, y + 32);
+                
+                // 3. คำนวณและวาดข้อความภาษาไทยให้อยู่ในกรอบอย่างชาญฉลาด (Dynamic Scaling & Centering)
+                const maxTextWidth = item.width - 30; // เพิ่ม Padding ซ้ายขวาให้สวยขึ้น
+                const maxTextHeight = item.height - 50; // พื้นที่แสดงผลข้อความแนวตั้งสูงสุดที่มีให้
+                let fontSize = 16; // ขยายฟอนต์เริ่มต้นสำหรับจอ 4:3
+                let lineHeight = 22;
+                let lines = [];
+                
+                // วนลูปย่อขนาดอักษรหากคำนวณแล้วบรรทัดล้นกรอบการ์ดลงมา
+                while (fontSize >= 11) {
+                    ctx.font = `${fontSize}px Mitr`;
+                    lines = getWrappedLines(ctx, item.text, maxTextWidth);
+                    if (lines.length * lineHeight <= maxTextHeight) {
+                        break; // พอดีกรอบแล้ว ออกจากลูป
+                    }
+                    fontSize -= 0.5; // ค่อยๆ ย่อขนาดลงทีละนิดเพื่อให้ได้ขนาดที่ใหญ่ที่สุดที่เป็นไปได้
+                    lineHeight -= 1;
+                }
+                
+                // ทำการวาดตัวอักษรจริงลงบน Canvas (จัดกึ่งกลางแนวนอนและแนวตั้ง)
+                ctx.fillStyle = "#ffffff";
+                ctx.font = `${fontSize}px Mitr`;
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                
+                // คำนวณจุดเริ่มต้น Y ให้อยู่กึ่งกลางพื้นที่ด้านล่างพอดี
+                const totalTextHeight = lines.length * lineHeight;
+                const startSpaceY = y + 44; 
+                let currentY = startSpaceY + ((maxTextHeight - totalTextHeight) / 2) + (lineHeight / 2);
+                
+                lines.forEach((line) => {
+                    ctx.fillText(line, item.x, currentY); // ใช้ item.x ซึ่งเป็นจุดกึ่งกลางการ์ด
+                    currentY += lineHeight;
+                });
+                
+                // รีเซ็ตค่ากลับเป็นค่าพื้นฐานเพื่อไม่ให้กระทบการวาดส่วนอื่น
+                ctx.textAlign = "left";
+                ctx.textBaseline = "alphabetic";
+            });
+        }
+
+        // ฟังก์ชันช่วยแยกคำภาษาไทยตามโครงสร้างประโยคอย่างถูกต้อง (Helper)
+        function getWrappedLines(ctx, text, maxWidth) {
+            let words = [];
+            if (window.Intl && window.Intl.Segmenter) {
+                const segmenter = new Intl.Segmenter('th', { granularity: 'word' });
+                words = Array.from(segmenter.segment(text)).map(s => s.segment);
+            } else {
+                words = text.split(''); // สำรองถ้าไม่มี Segmenter
+            }
+            
+            let lines = [];
+            let currentLine = '';
+            
+            for (let n = 0; n < words.length; n++) {
+                let testLine = currentLine + words[n];
+                if (ctx.measureText(testLine).width > maxWidth && n > 0) {
+                    lines.push(currentLine);
+                    currentLine = words[n];
+                } else {
+                    currentLine = testLine;
+                }
+            }
+            if (currentLine) {
+                lines.push(currentLine);
+            }
+            return lines;
+        }
+
+        function drawFeedbackMessage() {
+            if (feedbackMessage && feedbackTimer > 0) {
+                ctx.save(); ctx.fillStyle = feedbackMessage.color; ctx.font = "bold 22px Mitr"; ctx.textAlign = "center";
+                ctx.shadowColor = "rgba(0,0,0,0.8)"; ctx.shadowBlur = 8;
+                ctx.globalAlpha = Math.min(1.0, feedbackTimer / 20);
+                ctx.fillText(feedbackMessage.text, canvas.width/2, canvas.height/2 - 40 - (100 - feedbackTimer)*0.4);
+                ctx.restore(); feedbackTimer--; if(feedbackTimer <= 0) feedbackMessage = null;
+            }
+        }
+
+        function drawPointer() {
+            ctx.save(); ctx.shadowBlur = 10; ctx.shadowColor = isPinching ? "#10b981" : "#38bdf8";
+            ctx.strokeStyle = isPinching ? "#10b981" : "#38bdf8"; ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.arc(pointerX, pointerY, isPinching ? 12 : 16, 0, Math.PI*2); ctx.stroke();
+            ctx.fillStyle = isPinching ? "#10b981" : "#38bdf8"; ctx.beginPath(); ctx.arc(pointerX, pointerY, 4, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = "#fff"; ctx.font = "10px Mitr"; ctx.textAlign = "center";
+            ctx.fillText(isPinching ? "คีบจับ" : "เล็งเป้า", pointerX, pointerY - 24); ctx.restore();
+        }
+
+        window.onload = () => { initMouseAndTouchEvents(); drawGame(); };
+    </script>
+</body>
+</html>
